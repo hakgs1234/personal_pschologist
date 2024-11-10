@@ -3,9 +3,72 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 from transformers import pipeline
-import pdfplumber  # Alternative PDF extraction library
+import pdfplumber
 
-# Load and extract text from multiple PDFs using pdfplumber
+# CSS styling for a beautiful layout
+st.markdown("""
+    <style>
+        .title {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #4e79a7;
+            text-align: center;
+        }
+        .about-section, .project-section, .team-section {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .team-photo {
+            display: flex;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .container {
+            width: 90%;
+            margin: auto;
+        }
+        footer {
+            text-align: center;
+            font-size: 0.9em;
+            margin-top: 20px;
+            color: #777;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# Define page sections
+def about_us():
+    st.markdown("<div class='about-section'><h2>About Us</h2>", unsafe_allow_html=True)
+    st.markdown("""
+        We are a team dedicated to providing accessible mental health support through AI. 
+        This application combines insights from recognized psychology resources to respond 
+        thoughtfully and compassionately to users' mental health concerns.
+    """)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def project_details():
+    st.markdown("<div class='project-section'><h2>Project Details</h2>", unsafe_allow_html=True)
+    st.markdown("""
+        This AI-driven platform is designed to assist individuals by providing support 
+        and resources related to mental health. Based on input, it draws on books such as 
+        the DSM-5 for diagnostic information and "Theories of Personality" for understanding 
+        personality disorders, offering a thoughtful response to users.
+    """)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def team_details():
+    st.markdown("<div class='team-section'><h2>Our Team</h2>", unsafe_allow_html=True)
+    st.markdown("""
+        Our team consists of AI enthusiasts, mental health advocates, and professionals 
+        committed to enhancing the accessibility of mental health resources. We use the latest 
+        in AI research to develop this support platform.
+    """)
+    st.image("team_photo.jpg", caption="Meet the Team", use_column_width=True)  # Replace with an actual team photo
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Load and extract text from multiple PDFs
 def extract_text_from_pdf(pdf_path):
     text = ""
     try:
@@ -17,26 +80,26 @@ def extract_text_from_pdf(pdf_path):
         return ""
     return text
 
-# Specify the PDF files you want to use
-pdf_files = ['Diagnostic and statistical manual of mental disorders _ DSM-5 ( PDFDrive.com ).pdf',
-             'b6c3v8_Theories_of_Personality_10.pdf']
+# Load PDFs
+pdf_files = {
+    "DSM-5": 'Diagnostic and statistical manual of mental disorders _ DSM-5 ( PDFDrive.com ).pdf',
+    "Theories of Personality": 'b6c3v8_Theories_of_Personality_10.pdf'
+}
+all_texts = {}
 
-all_text = ""
-
-# Extract text from each PDF and combine
-for pdf_file in pdf_files:
-    st.write(f"Extracting text from {pdf_file}...")
+# Extract text from each PDF and store in dictionary
+for title, pdf_file in pdf_files.items():
+    st.write(f"Extracting text from {title}...")
     text = extract_text_from_pdf(pdf_file)
     if text:
-        all_text += text + "\n"  # Separate texts by new lines for clarity
+        all_texts[title] = text
     else:
         st.warning(f"No text found in {pdf_file}")
 
-# Split the combined text into chunks
+# Chunk text from PDFs
 def chunk_text(text, chunk_size=300):
     sentences = text.split('. ')
-    chunks = []
-    current_chunk = ""
+    chunks, current_chunk = [], ""
     for sentence in sentences:
         if len(current_chunk) + len(sentence) <= chunk_size:
             current_chunk += sentence + ". "
@@ -47,49 +110,45 @@ def chunk_text(text, chunk_size=300):
         chunks.append(current_chunk.strip())
     return chunks
 
-st.write("Chunking text...")
-chunks = chunk_text(all_text)
-
-# Embed and index text chunks
-st.write("Encoding text using SentenceTransformer...")
+# Initialize embeddings and FAISS index
 model = SentenceTransformer('all-MiniLM-L6-v2')
-embeddings = model.encode(chunks, convert_to_tensor=True)
+index = faiss.IndexFlatL2(384)
 
-# Convert embeddings to numpy for FAISS
-embeddings_np = embeddings.detach().cpu().numpy()
-
-# Initialize FAISS index
-embedding_dim = embeddings_np.shape[1]
-index = faiss.IndexFlatL2(embedding_dim)
-index.add(embeddings_np)
+for title, text in all_texts.items():
+    chunks = chunk_text(text)
+    embeddings = model.encode(chunks, convert_to_tensor=True)
+    embeddings_np = embeddings.detach().cpu().numpy()
+    index.add(embeddings_np)
+    all_texts[title] = (chunks, embeddings_np)
 
 # Set up the generation model
-st.write("Loading GPT-2 model for text generation...")
 generator = pipeline("text-generation", model="gpt2")
+
+# Select relevant book based on query
+def choose_book(query):
+    if "personality" in query.lower():
+        return "Theories of Personality"
+    else:
+        return "DSM-5"
 
 # Generate response based on query
 def generate_response(query):
     try:
-        # Step 1: Embed the query
+        book_title = choose_book(query)
+        st.write(f"Using knowledge from: {book_title}")
+        chunks, embeddings_np = all_texts[book_title]
+        
         query_embedding = model.encode([query], convert_to_tensor=True).detach().cpu().numpy()
-
-        # Step 2: Search FAISS for top-k similar chunks
         k = 3
-        st.write("Searching for similar chunks in FAISS index...")
         _, retrieved_indices = index.search(query_embedding, k)
-
-        # Step 3: Check if retrieved_indices has results
+        
         if retrieved_indices is not None and len(retrieved_indices[0]) > 0:
             retrieved_chunks = [chunks[idx] for idx in retrieved_indices[0] if idx < len(chunks)]
         else:
             retrieved_chunks = ["I'm here to help. Let's work through this together."]
         
-        # Step 4: Combine retrieved chunks and pass to generator
         context = " ".join(retrieved_chunks)
-        prompt = f"User is feeling overwhelmed and needs support. Here’s some information that might help: {context}\n\nUser query: {query}\n\nSupportive response:"
-        
-        # Generate the response using GPT-2 with max_new_tokens
-        st.write("Generating response with GPT-2...")
+        prompt = f"User query: {query}\n\nRelevant context: {context}\n\nResponse:"
         response = generator(prompt, max_new_tokens=150, num_return_sequences=1)[0]["generated_text"]
         return response
     
@@ -97,12 +156,26 @@ def generate_response(query):
         st.error(f"An error occurred while generating response: {e}")
         return f"An error occurred: {e}"
 
-# Streamlit Interface
+# Streamlit Navigation and User Input
 st.title("Personal Psychologist AI")
-st.markdown("This AI provides mental health support based on books. Please enter your query below.")
-user_input = st.text_input("Enter your query:")
 
-if user_input:
-    st.write(f"Processing your query: {user_input}")
-    response = generate_response(user_input)
-    st.write(f"Response: {response}")
+# Navigation
+menu = ["Chat", "About Us", "Project Details", "Our Team"]
+choice = st.sidebar.selectbox("Navigate", menu)
+
+if choice == "About Us":
+    about_us()
+elif choice == "Project Details":
+    project_details()
+elif choice == "Our Team":
+    team_details()
+else:
+    st.markdown("### AI Mental Health Support Chat")
+    user_input = st.text_input("Enter your query:")
+    if user_input:
+        st.write("Processing your query...")
+        response = generate_response(user_input)
+        st.write(f"Response: {response}")
+
+# Footer
+st.markdown("<footer>© 2024 Personal Psychologist AI - All rights reserved</footer>", unsafe_allow_html=True)
