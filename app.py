@@ -13,7 +13,8 @@ def extract_text_from_pdf(pdf_path):
             for page in pdf.pages:
                 text += page.extract_text()
     except Exception as e:
-        return f"Error extracting text: {e}"
+        st.error(f"Error extracting text from {pdf_path}: {e}")
+        return ""
     return text
 
 # Specify the PDF files you want to use
@@ -24,7 +25,12 @@ all_text = ""
 
 # Extract text from each PDF and combine
 for pdf_file in pdf_files:
-    all_text += extract_text_from_pdf(pdf_file) + "\n"  # Separate texts by new lines for clarity
+    st.write(f"Extracting text from {pdf_file}...")
+    text = extract_text_from_pdf(pdf_file)
+    if text:
+        all_text += text + "\n"  # Separate texts by new lines for clarity
+    else:
+        st.warning(f"No text found in {pdf_file}")
 
 # Split the combined text into chunks
 def chunk_text(text, chunk_size=300):
@@ -41,9 +47,11 @@ def chunk_text(text, chunk_size=300):
         chunks.append(current_chunk.strip())
     return chunks
 
+st.write("Chunking text...")
 chunks = chunk_text(all_text)
 
 # Embed and index text chunks
+st.write("Encoding text using SentenceTransformer...")
 model = SentenceTransformer('all-MiniLM-L6-v2')
 embeddings = model.encode(chunks, convert_to_tensor=True)
 
@@ -56,6 +64,7 @@ index = faiss.IndexFlatL2(embedding_dim)
 index.add(embeddings_np)
 
 # Set up the generation model
+st.write("Loading GPT-2 model for text generation...")
 generator = pipeline("text-generation", model="gpt2")
 
 # Generate response based on query
@@ -66,8 +75,9 @@ def generate_response(query):
 
         # Step 2: Search FAISS for top-k similar chunks
         k = 3
+        st.write("Searching for similar chunks in FAISS index...")
         _, retrieved_indices = index.search(query_embedding, k)
-        
+
         # Step 3: Check if retrieved_indices has results
         if retrieved_indices is not None and len(retrieved_indices[0]) > 0:
             retrieved_chunks = [chunks[idx] for idx in retrieved_indices[0] if idx < len(chunks)]
@@ -79,10 +89,12 @@ def generate_response(query):
         prompt = f"User is feeling overwhelmed and needs support. Here’s some information that might help: {context}\n\nUser query: {query}\n\nSupportive response:"
         
         # Generate the response using GPT-2 with max_new_tokens
+        st.write("Generating response with GPT-2...")
         response = generator(prompt, max_new_tokens=150, num_return_sequences=1)[0]["generated_text"]
         return response
     
     except Exception as e:
+        st.error(f"An error occurred while generating response: {e}")
         return f"An error occurred: {e}"
 
 # Streamlit Interface
@@ -91,5 +103,6 @@ st.markdown("This AI provides mental health support based on books. Please enter
 user_input = st.text_input("Enter your query:")
 
 if user_input:
+    st.write(f"Processing your query: {user_input}")
     response = generate_response(user_input)
-    st.write(response)
+    st.write(f"Response: {response}")
