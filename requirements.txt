@@ -1,3 +1,7 @@
 streamlit
+sentence-transformers
+faiss-cpu
 transformers
+pdfplumber
 torch
+numpy
