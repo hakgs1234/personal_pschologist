@@ -73,7 +73,7 @@ def get_relevant_context(user_input, book_embeddings, faiss_index):
     return relevant_context
 
 # Example book embedding and FAISS setup (you will replace this with actual book data)
-book_texts = ["Book text 1", "Book text 2", "Book text 3"]  # Replace with actual book texts
+book_texts = ["b6c3v8_Theories_of_Personality_10.pdf", "Diagnostic and statistical manual of mental disorders _ DSM-5 ( PDFDrive.com ).pdf"]  # Replace with actual book texts
 book_embeddings = [tokenizer.encode(text, return_tensors='pt').cpu().detach().numpy() for text in book_texts]
 faiss_index = faiss.IndexFlatL2(len(book_embeddings[0]))  # Use FAISS index for similarity search
 faiss_index.add(np.vstack(book_embeddings))  # Add the book embeddings to the FAISS index
